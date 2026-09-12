@@ -24,24 +24,25 @@ if __name__ == "__main__":
 
     # คอนฟิก PPO สำหรับ RTX 3060 Ti
     model = PPO(
-        policy="MlpPolicy",
-        env=vec_env,
-        learning_rate=3e-4,
+        "MlpPolicy",
+        vec_env,
+        learning_rate=1e-4,
         n_steps=1024,
         batch_size=512,
         n_epochs=5,
         gamma=0.99,
         gae_lambda=0.95,
         clip_range=0.2,
-        ent_coef=0.001,
+        ent_coef=0.005,
         device=device,
-        verbose=1
+        verbose=1,
+        tensorboard_log="./tensorboard_logs/"
     )
 
-    # ฝึกสอนโมเดล 1,500,000 timesteps
+    # ฝึกสอนโมเดล 3,000,000 timesteps
     print("--- เริ่มการฝึกสอนโมเดล (Training Phase) ---")
     start_time = time.time()
-    model.learn(total_timesteps=1500000)
+    model.learn(total_timesteps=3000000)
     train_duration = time.time() - start_time
     print(f"--- การฝึกเสร็จสิ้น ใช้เวลาไปทั้งสิ้น {train_duration:.2f} วินาที ---")
 
@@ -109,7 +110,7 @@ if __name__ == "__main__":
 สภาพแวดล้อม: Custom 3-DoF Reacher (MuJoCo Physics Engine)
 เงื่อนไขงาน: แตะเฉพาะฝาบนกล่องเป้าหมาย (Top-Surface Touch Only)
 ฮาร์ดแวร์ประมวลผล: i3-12100F (7 Subproc Workers) + RTX 3060 Ti ({device.upper()})
-เวลาที่ใช้ฝึกทั้งหมด: {train_duration:.2f} วินาที (500,000 Timesteps)
+เวลาที่ใช้ฝึกทั้งหมด: {train_duration:.2f} วินาที (3,000,000 Timesteps)
 จำนวนรอบการทดสอบประเมิน: {total_episodes} Episodes
 
 ----------------------------------------------------------------------

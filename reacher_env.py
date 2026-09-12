@@ -76,7 +76,7 @@ class ArmReacherEnv(gym.Env):
         action_penalty = 0.5 * np.sum(np.square(action))
         vel_penalty = 0.05 * np.sum(np.square(self.data.qvel[:3]))
         
-        reward = - (d_xy + abs(d_z)) - action_penalty - vel_penalty
+        reward = - (2.0 * d_xy + abs(d_z)) - action_penalty - vel_penalty
         
         if tip_pos[2] < 0.02:
             reward -= 2.0
@@ -84,7 +84,7 @@ class ArmReacherEnv(gym.Env):
         terminated = False
         status = "running"
         
-        if d_xy <= 0.03 and 0.0 <= d_z <= 0.025:
+        if d_xy <= 0.02 and 0.0 <= d_z <= 0.02:
             reward += 50.0
             terminated = True
             status = "hit_top_success"
