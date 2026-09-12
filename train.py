@@ -38,10 +38,10 @@ if __name__ == "__main__":
         verbose=1
     )
 
-    # ฝึกสอนโมเดล 500,000 timesteps
+    # ฝึกสอนโมเดล 1,500,000 timesteps
     print("--- เริ่มการฝึกสอนโมเดล (Training Phase) ---")
     start_time = time.time()
-    model.learn(total_timesteps=1000000)
+    model.learn(total_timesteps=1500000)
     train_duration = time.time() - start_time
     print(f"--- การฝึกเสร็จสิ้น ใช้เวลาไปทั้งสิ้น {train_duration:.2f} วินาที ---")
 

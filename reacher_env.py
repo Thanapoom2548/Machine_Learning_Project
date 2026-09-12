@@ -13,17 +13,20 @@ class ArmReacherEnv(gym.Env):
         self.tip_site_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_SITE, "tip")
         self.target_body_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "target")
         
-        self.action_space = spaces.Box(low=-0.04, high=0.04, shape=(3,), dtype=np.float32)
-        self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(9,), dtype=np.float32)
+        self.action_space = spaces.Box(low=-0.02, high=0.02, shape=(3,), dtype=np.float32)
+        self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(12,), dtype=np.float32)
         self.current_step = 0
 
     def _get_obs(self):
-        # ดักค่า NaN ไม่ให้หลุดเข้าไปทำลาย Weights ของ Neural Network
+        # รวบรวมข้อมูลให้ครบ 12 ตัว (qpos=3, qvel=3, tip=3, target=3)
         qpos = np.nan_to_num(self.data.qpos[:3].copy(), nan=0.0)
+        qvel = np.nan_to_num(self.data.qvel[:3].copy(), nan=0.0)
+        
         tip_pos = np.nan_to_num(self.data.site_xpos[self.tip_site_id].copy(), nan=0.0)
         target_top_pos = np.nan_to_num(self.data.xpos[self.target_body_id].copy(), nan=0.0)
         target_top_pos[2] += 0.02
-        return np.concatenate([qpos, tip_pos, target_top_pos]).astype(np.float32)
+        
+        return np.concatenate([qpos, qvel, tip_pos, target_top_pos]).astype(np.float32)
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
@@ -50,23 +53,19 @@ class ArmReacherEnv(gym.Env):
 
     def step(self, action):
         self.current_step += 1
-        
-        # ป้องกัน Action ขยะ
         action = np.nan_to_num(action, nan=0.0)
         
         self.data.ctrl[0] = np.clip(self.data.ctrl[0] + action[0], -3.14, 3.14)
         self.data.ctrl[1] = np.clip(self.data.ctrl[1] + action[1], -0.2, 1.57)
         self.data.ctrl[2] = np.clip(self.data.ctrl[2] + action[2], -2.2, 0.0)
         
-        for _ in range(3):
+        for _ in range(10):
             mujoco.mj_step(self.model, self.data)
             
-        # 1. ถ้าฟิสิกส์ระเบิด (QACC หลุด) ให้โยนค่า Penalty และเริ่มใหม่ทันที
         if np.isnan(self.data.qpos).any() or np.isnan(self.data.qacc).any():
             mujoco.mj_resetData(self.model, self.data)
             return self._get_obs(), -20.0, True, False, {"d_xy": 1.0, "d_z": 1.0, "status": "exploded"}
             
-        # 2. ถ้าระบบปกติ ให้คำนวณระยะทางและส่งค่า Return ตัวจริง (ส่วนที่แหว่งไปรอบก่อน)
         tip_pos = self.data.site_xpos[self.tip_site_id]
         box_pos = self.data.xpos[self.target_body_id]
         target_top_z = box_pos[2] + 0.02
@@ -74,22 +73,23 @@ class ArmReacherEnv(gym.Env):
         d_xy = np.linalg.norm(tip_pos[:2] - box_pos[:2])
         d_z = tip_pos[2] - target_top_z
         
-        reward = - (d_xy + abs(d_z))
+        action_penalty = 0.5 * np.sum(np.square(action))
+        vel_penalty = 0.05 * np.sum(np.square(self.data.qvel[:3]))
         
-        # หักคะแนนถ้าแขนทิ่มลงพื้น
+        reward = - (d_xy + abs(d_z)) - action_penalty - vel_penalty
+        
         if tip_pos[2] < 0.02:
             reward -= 2.0
             
         terminated = False
         status = "running"
         
-        # เงื่อนไขแตะฝาบนสำเร็จ
         if d_xy <= 0.03 and 0.0 <= d_z <= 0.025:
             reward += 50.0
             terminated = True
             status = "hit_top_success"
             
-        truncated = self.current_step >= 150
+        truncated = self.current_step >= 300
         obs = self._get_obs()
         
         return obs, reward, terminated, truncated, {"d_xy": d_xy, "d_z": d_z, "status": status}

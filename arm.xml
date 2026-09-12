@@ -21,16 +21,16 @@
     <body name="base" pos="0 0 0">
       <geom type="cylinder" size="0.05 0.04" pos="0 0 0.04" rgba="0.3 0.3 0.3 1"/>
       <!-- เพิ่ม damping=0.5 เพื่อลดแรงสั่นสะสม -->
-      <joint name="joint_base" type="hinge" axis="0 0 1" pos="0 0 0" damping="0.5"/>
+      <joint name="joint_base" type="hinge" axis="0 0 1" pos="0 0 0" damping="2.0"/>
 
       <!-- ท่อนแขนที่ 1 (Upper Arm) -->
       <body name="link1" pos="0 0 0.08">
-        <joint name="joint_shoulder" type="hinge" axis="0 -1 0" pos="0 0 0" range="-0.2 1.57" damping="0.5"/>
+        <joint name="joint_shoulder" type="hinge" axis="0 -1 0" pos="0 0 0" range="-0.2 1.57" damping="2.0"/>
         <geom type="capsule" fromto="0 0 0 0.2 0 0" size="0.02" rgba="0.2 0.7 0.9 1"/>
 
         <!-- ท่อนแขนที่ 2 (Forearm) -->
         <body name="link2" pos="0.2 0 0">
-          <joint name="joint_elbow" type="hinge" axis="0 -1 0" pos="0 0 0" range="-2.2 0.0" damping="0.5"/>
+          <joint name="joint_elbow" type="hinge" axis="0 -1 0" pos="0 0 0" range="-2.2 0.0" damping="2.0"/>
           <geom type="capsule" fromto="0 0 0 0.2 0 0" size="0.018" rgba="0.9 0.6 0.2 1"/>
 
           <!-- ปลายแขนสีเขียว -->
