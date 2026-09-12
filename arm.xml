@@ -1,0 +1,47 @@
+<mujoco model="simple_reacher">
+  <compiler angle="radian"/>
+  <option gravity="0 0 -9.81"/>
+
+  <visual>
+    <headlight ambient="0.4 0.4 0.4" diffuse="0.8 0.8 0.8" specular="0.1 0.1 0.1"/>
+  </visual>
+
+  <worldbody>
+    <light pos="0 0 2" dir="0 0 -1"/>
+    <!-- พื้นตาราง -->
+    <geom type="plane" size="1 1 0.1" rgba="0.2 0.3 0.4 1"/>
+
+    <!-- กล่องเป้าหมาย (สีแดง) -->
+    <body name="target" pos="0.2 0.1 0.05">
+      <geom type="box" size="0.02 0.02 0.02" rgba="1 0 0 1" contype="0" conaffinity="0"/>
+    </body>
+
+    <!-- ฐานหุ่นยนต์ -->
+    <body name="base" pos="0 0 0">
+      <geom type="cylinder" size="0.05 0.04" pos="0 0 0.04" rgba="0.3 0.3 0.3 1"/>
+      <joint name="joint_base" type="hinge" axis="0 0 1" pos="0 0 0"/>
+
+      <!-- ท่อนแขนที่ 1 (Upper Arm: ยาว 0.2 m) -->
+      <body name="link1" pos="0 0 0.08">
+        <joint name="joint_shoulder" type="hinge" axis="0 -1 0" pos="0 0 0" range="-1.57 1.57"/>
+        <geom type="capsule" fromto="0 0 0 0.2 0 0" size="0.02" rgba="0.2 0.7 0.9 1"/>
+
+        <!-- ท่อนแขนที่ 2 (Forearm: ยาว 0.2 m) -->
+        <body name="link2" pos="0.2 0 0">
+          <joint name="joint_elbow" type="hinge" axis="0 -1 0" pos="0 0 0" range="-2.5 0.0"/>
+          <geom type="capsule" fromto="0 0 0 0.2 0 0" size="0.018" rgba="0.9 0.6 0.2 1"/>
+
+          <!-- ปลายแขนสำหรับแตะวัตถุ (End-Effector Site) -->
+          <site name="tip" type="sphere" pos="0.21 0 0" size="0.025" rgba="0 1 0 1"/>
+        </body>
+      </body>
+    </body>
+  </worldbody>
+
+  <!-- มอเตอร์ควบคุมตำแหน่งองศาของแต่ละข้อต่อ -->
+  <actuator>
+    <position name="act_base" joint="joint_base" kp="100"/>
+    <position name="act_shoulder" joint="joint_shoulder" kp="100"/>
+    <position name="act_elbow" joint="joint_elbow" kp="100"/>
+  </actuator>
+</mujoco>
