@@ -14,7 +14,7 @@ class ArmReacherEnv(gym.Env):
         self.target_body_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "target")
         
         # Action ของ RL จะเป็นเพียงตัวปรับจูน (Fine-tuning) จากค่า IK
-        self.action_space = spaces.Box(low=-0.02, high=0.02, shape=(3,), dtype=np.float32)
+        self.action_space = spaces.Box(low=-0.01, high=0.01, shape=(3,), dtype=np.float32)
         self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(12,), dtype=np.float32)
         
         self.current_step = 0
@@ -98,7 +98,12 @@ class ArmReacherEnv(gym.Env):
         retreat_penalty = 6.0 * dist_diff if dist_diff > 0 else 0.0
         self.prev_dist = current_dist
         
-        delay_penalty = 0.25 if self.current_step > 200 else 0.0
+        if self.current_step > 250:
+            delay_penalty = 1.5
+        elif self.current_step > 150:
+            delay_penalty = 0.25
+        else:
+            delay_penalty = 0.0
         
         # ลงโทษ Action ของ RL อย่างเดียว ไม่ลงโทษฐาน IK
         action_penalty = 0.2 * float(np.sum(np.square(action)))
@@ -112,8 +117,9 @@ class ArmReacherEnv(gym.Env):
         terminated = False
         status = "running"
         
-        if d_xy <= 0.03 and 0.0 <= d_z <= 0.025:
-            reward += 40.0
+        # ขยายแกน Z เป็น 0.035 และเพิ่มโบนัสเป็น 50 เพื่อเอาชนะความกลัวโดนหักคะแนนชนพื้น
+        if d_xy <= 0.035 and 0.0 <= d_z <= 0.035:
+            reward += 50.0
             terminated = True
             status = "hit_top_success"
             
