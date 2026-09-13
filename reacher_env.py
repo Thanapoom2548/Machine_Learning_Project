@@ -117,7 +117,7 @@ class ArmReacherEnv(gym.Env):
         terminated = False
         status = "running"
         
-        # ขยายแกน Z เป็น 0.035 และเพิ่มโบนัสเป็น 50 เพื่อเอาชนะความกลัวโดนหักคะแนนชนพื้น
+       
         if d_xy <= 0.035 and 0.0 <= d_z <= 0.035:
             reward += 50.0
             terminated = True
