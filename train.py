@@ -1,154 +1,134 @@
 import os
 import time
 from datetime import datetime
-import torch
 import numpy as np
-import mujoco.viewer
-from stable_baselines3 import PPO
+import torch
+from stable_baselines3 import SAC
 from stable_baselines3.common.vec_env import SubprocVecEnv
+from stable_baselines3.common.monitor import Monitor
 from reacher_env import ArmReacherEnv
 
 def make_env(xml_path="arm.xml"):
     def _init():
-        return ArmReacherEnv(xml_path=xml_path)
+        env = ArmReacherEnv(xml_path=xml_path)
+        return Monitor(env)  # หุ้ม Env ด้วย Monitor เพื่อเก็บคะแนนและสถิติ
     return _init
 
-if __name__ == "__main__":
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    print(f"=== กำลังฝึกโมเดลบน: {device.upper()} ===")
-
-    # รัน 7 Process คู่ขนานบน i3-12100F
-    num_cpu = 8
-    env_fns = [make_env("arm.xml") for _ in range(num_cpu)]
-    vec_env = SubprocVecEnv(env_fns)
-
-    # คอนฟิก PPO สำหรับ RTX 3060 Ti
-    model = PPO(
+if __name__ == '__main__':
+    device = "cpu"
+    print(f"=== กำลังฝึกโมเดลบน: {device.upper()} (บังคับปิด GPU เพื่อเพิ่ม FPS) ===")
+    
+    num_envs = 8
+    vec_env = SubprocVecEnv([make_env("arm.xml") for _ in range(num_envs)])
+    
+    model = SAC(
         "MlpPolicy",
         vec_env,
-        learning_rate=1e-4,
-        n_steps=1024,
-        batch_size=512,
-        n_epochs=5,
+        learning_rate=3e-4,
+        buffer_size=100000,
+        batch_size=256,
+        train_freq=(512, "step"),
         gamma=0.99,
-        gae_lambda=0.95,
-        clip_range=0.2,
-        ent_coef=0.005,
+        tau=0.005,
         device=device,
         verbose=1,
         tensorboard_log="./tensorboard_logs/"
     )
-
-    # ฝึกสอนโมเดล 3,000,000 timesteps
-    print("--- เริ่มการฝึกสอนโมเดล (Training Phase) ---")
+    
+    TOTAL_TIMESTEPS = 500000 
+    print(f"--- เริ่มการฝึกสอนโมเดล ({TOTAL_TIMESTEPS:,} Timesteps) ---")
     start_time = time.time()
-    model.learn(total_timesteps=3000000)
+    
+    # หน่วงการพิมพ์ลงหน้าจอให้เหลือทุกๆ 50 Episodes
+    model.learn(total_timesteps=TOTAL_TIMESTEPS, log_interval=50)
+    
     train_duration = time.time() - start_time
     print(f"--- การฝึกเสร็จสิ้น ใช้เวลาไปทั้งสิ้น {train_duration:.2f} วินาที ---")
-
-    model.save("ppo_top_touch_model")
+    
+    model_save_path = "sac_residual_model.zip"
+    model.save(model_save_path)
+    print(f"บันทึกโมเดลไว้ที่: {model_save_path}")
     vec_env.close()
-
-    # --- ส่วนการประเมินผลเชิงตัวเลข (Evaluation Phase) ---
-    print("\n--- กำลังทดสอบโมเดล 100 รอบ เพื่อเก็บข้อมูลทางสถิติ ---")
-    eval_env = ArmReacherEnv(xml_path="arm.xml")
-    total_episodes = 100
-
+    
+    print("\n--- เริ่มขั้นตอนการประเมินผล (Evaluation Phase 100 Episodes) ---")
+    eval_env = ArmReacherEnv("arm.xml")
+    
+    eval_episodes = 100
     success_count = 0
     side_hit_count = 0
     timeout_count = 0
     
-    list_steps = []
-    list_rewards = []
-    list_xy_errors = []
-    list_z_errors = []
-
-    for ep in range(total_episodes):
+    xy_errors = []
+    z_errors = []
+    dist_3d_errors = []
+    step_counts = []
+    episode_returns = []
+    
+    for ep in range(eval_episodes):
         obs, _ = eval_env.reset()
         done = False
-        ep_reward = 0.0
-        step_count = 0
-
+        ep_ret = 0.0
+        step_cnt = 0
+        final_info = {}
+        
         while not done:
             action, _ = model.predict(obs, deterministic=True)
             obs, reward, terminated, truncated, info = eval_env.step(action)
-            ep_reward += reward
-            step_count += 1
+            ep_ret += reward
+            step_cnt += 1
             done = terminated or truncated
+            final_info = info
+            
+        episode_returns.append(ep_ret)
+        step_counts.append(step_cnt)
+        
+        d_xy = final_info.get("d_xy", 1.0)
+        d_z = final_info.get("d_z", 1.0)
+        d_3d = np.sqrt(d_xy**2 + d_z**2)
+        status = final_info.get("status", "running")
+        
+        xy_errors.append(d_xy)
+        z_errors.append(abs(d_z))
+        dist_3d_errors.append(d_3d)
+        
+        if status == "hit_top_success":
+            success_count += 1
+        elif status == "side_collision":
+            side_hit_count += 1
+        else:
+            timeout_count += 1
 
-            if done:
-                list_steps.append(step_count)
-                list_rewards.append(ep_reward)
-                list_xy_errors.append(info["d_xy"] * 100)  # แปลงเป็น cm
-                list_z_errors.append(abs(info["d_z"]) * 100)  # แปลงเป็น cm
+    eval_env.close()
 
-                if info["status"] == "hit_top_success":
-                    success_count += 1
-                elif info["status"] == "hit_side":
-                    side_hit_count += 1
-                else:
-                    timeout_count += 1
-
-    # คำนวณค่าเฉลี่ยทางสถิติ
-    success_rate = (success_count / total_episodes) * 100
-    side_hit_rate = (side_hit_count / total_episodes) * 100
-    timeout_rate = (timeout_count / total_episodes) * 100
+    success_rate = (success_count / eval_episodes) * 100
+    side_hit_rate = (side_hit_count / eval_episodes) * 100
+    timeout_rate = (timeout_count / eval_episodes) * 100
     
-    avg_steps = float(np.mean(list_steps))
-    avg_reward = float(np.mean(list_rewards))
-    avg_xy_err = float(np.mean(list_xy_errors))
-    avg_z_err = float(np.mean(list_z_errors))
-    total_euclidean_err = float(np.mean(np.sqrt(np.array(list_xy_errors)**2 + np.array(list_z_errors)**2)))
-
-    # --- สร้างรายงานเป็นไฟล์ TXT ---
-    report_filename = "evaluation_report.txt"
     report_content = f"""======================================================================
-               รายงานผลการประเมินโมเดลควบคุมแขนกล 3-DOF (RL-PPO)
+               รายงานผลการประเมินแบบผสมผสาน IK + SAC
 ======================================================================
-วันที่และเวลาบันทึก: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
-อัลกอริทึม: Proximal Policy Optimization (PPO)
+วันที่และเวลาบันทึก: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+อัลกอริทึม: Soft Actor-Critic (SAC) + Inverse Kinematics
 สภาพแวดล้อม: Custom 3-DoF Reacher (MuJoCo Physics Engine)
-เงื่อนไขงาน: แตะเฉพาะฝาบนกล่องเป้าหมาย (Top-Surface Touch Only)
-ฮาร์ดแวร์ประมวลผล: i3-12100F (7 Subproc Workers) + RTX 3060 Ti ({device.upper()})
-เวลาที่ใช้ฝึกทั้งหมด: {train_duration:.2f} วินาที (3,000,000 Timesteps)
-จำนวนรอบการทดสอบประเมิน: {total_episodes} Episodes
+ฮาร์ดแวร์ประมวลผล: CPU | {num_envs} Workers
+เวลาที่ใช้ฝึกทั้งหมด: {train_duration:.2f} วินาที ({TOTAL_TIMESTEPS:,} Timesteps)
+จำนวนรอบการทดสอบประเมิน: {eval_episodes} Episodes
 
 ----------------------------------------------------------------------
 1. ตัวชี้วัดอัตราความสำเร็จ (Success Rate Metrics)
 ----------------------------------------------------------------------
-- อัตราการแตะฝาบนสำเร็จ (Success Rate):      {success_rate:.2f} % ({success_count}/{total_episodes})
-- อัตราการเกิดข้อผิดพลาดชนข้างกล่อง (Side Hits): {side_hit_rate:.2f} % ({side_hit_count}/{total_episodes})
-- อัตราการหมดเวลาเอื้อมไม่ถึง (Timeouts):       {timeout_rate:.2f} % ({timeout_count}/{total_episodes})
+- อัตราการแตะฝาบนสำเร็จ (Success Rate):      {success_rate:.2f} % ({success_count}/{eval_episodes})
+- อัตราการเกิดข้อผิดพลาดชนข้างกล่อง (Side Hits): {side_hit_rate:.2f} % ({side_hit_count}/{eval_episodes})
+- อัตราการหมดเวลาเอื้อมไม่ถึง (Timeouts):       {timeout_rate:.2f} % ({timeout_count}/{eval_episodes})
 
 ----------------------------------------------------------------------
 2. ตัวชี้วัดความแม่นยำเชิงตำแหน่ง (Positional Error Metrics)
 ----------------------------------------------------------------------
-- ความคลาดเคลื่อนแนวราบเฉลี่ย (Mean XY Error): {avg_xy_err:.2f} cm
-- ความคลาดเคลื่อนแนวดิ่งเฉลี่ย (Mean Z Error):  {avg_z_err:.2f} cm
-- ความคลาดเคลื่อนระยะขจัดรวม (Mean 3D Error): {total_euclidean_err:.2f} cm
-
-----------------------------------------------------------------------
-3. ตัวชี้วัดประสิทธิภาพการเคลื่อนที่ (Kinematic & Return Metrics)
-----------------------------------------------------------------------
-- จำนวนสเต็ปเฉลี่ยในการแตะสำเร็จ (Avg Steps):    {avg_steps:.2f} Steps/Episode
-- ผลตอบแทนเฉลี่ยต่อรอบ (Mean Episodic Return):  {avg_reward:.2f}
+- ความคลาดเคลื่อนแนวราบเฉลี่ย (Mean XY Error): {np.mean(xy_errors)*100:.2f} cm
+- ความคลาดเคลื่อนแนวดิ่งเฉลี่ย (Mean Z Error):  {np.mean(z_errors)*100:.2f} cm
+- ความคลาดเคลื่อนระยะขจัดรวม (Mean 3D Error): {np.mean(dist_3d_errors)*100:.2f} cm
 ======================================================================
 """
-
-    with open(report_filename, "w", encoding="utf-8") as f:
-        f.write(report_content)
-
-    print(f"\n[สำเร็จ] บันทึกผลการประเมินลงไฟล์ '{report_filename}' เรียบร้อยแล้ว")
     print(report_content)
-
-    # --- เปิด Viewer แสดงผล 3 มิติ ---
-    print("กำลังเปิดการจำลอง 3 มิติเพื่อดูพฤติกรรมจริง...")
-    obs, _ = eval_env.reset()
-    with mujoco.viewer.launch_passive(eval_env.model, eval_env.data) as viewer:
-        while viewer.is_running():
-            action, _ = model.predict(obs, deterministic=True)
-            obs, reward, terminated, truncated, info = eval_env.step(action)
-            viewer.sync()
-            time.sleep(0.02)
-            if terminated or truncated:
-                obs, _ = eval_env.reset()
+    with open("evaluation_report.txt", "w", encoding="utf-8") as f:
+        f.write(report_content)
